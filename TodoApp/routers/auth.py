@@ -8,8 +8,11 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from sqlalchemy.util import deprecated
 from starlette.status import HTTP_201_CREATED
+from fastapi.security import OAuth2PasswordRequestForm
+
 
 router = APIRouter()
+# for using bcrypt password we need to install passlib and bcrypt=4.0.1
 bcrypt_context = CryptContext(schemes=['bcrypt'],deprecated='auto')
 
 class CreateUserRequest(BaseModel):
@@ -29,6 +32,25 @@ def get_db():
 
 
 db_dependency = Annotated[Session,Depends(get_db)]
+
+
+
+def authenticate_user(username:str,password:str,db):
+    user = db.query(Users).filter(Users.username == username).first()
+    if not user:
+        return False
+    if not bcrypt_context.verify(password, user.hashed_password):
+        return False
+    return True
+
+
+@router.post("/token")
+def login_for_access_token(form_data:Annotated[OAuth2PasswordRequestForm,Depends()],db:db_dependency):
+    if authenticate_user(form_data.username,form_data.password,db):
+        return "Login Successful"
+    else:
+        return "Login Failed"
+
 
 @router.post("/auth/",status_code=HTTP_201_CREATED)
 def create_user(db:db_dependency,create_user_request:CreateUserRequest):
