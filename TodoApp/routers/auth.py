@@ -1,5 +1,8 @@
+from datetime import timedelta, datetime, UTC
+from time import timezone
 from typing import Annotated
-
+#>pip install "python-jose[cryptography]"
+from jose import jwt
 from fastapi import APIRouter, Depends,HTTPException
 from pydantic import BaseModel
 from models import Users
@@ -9,6 +12,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.util import deprecated
 from starlette.status import HTTP_201_CREATED
 from fastapi.security import OAuth2PasswordRequestForm
+
+#openssl rand -hex 32
+SECRET_KEY = "dummykeyfornowwearegonnauseit"
+Algorithm="HS256"
 
 
 router = APIRouter()
@@ -23,6 +30,10 @@ class CreateUserRequest(BaseModel):
     password:str
     role:str
 
+class Token(BaseModel):
+    access_token:str
+    token_type:str
+
 def get_db():
     db = SessionLocal()
     try:
@@ -33,23 +44,34 @@ def get_db():
 
 db_dependency = Annotated[Session,Depends(get_db)]
 
-
+def token_generator(username:str,user_id:int,expires_delta:timedelta):
+    encode = {
+        "sub":username,
+        "id":user_id
+    }
+    expires = str(datetime.now(UTC) + expires_delta)
+    encode.update({"exp":expires})
+    return jwt.encode(encode,SECRET_KEY,algorithm=Algorithm)
 
 def authenticate_user(username:str,password:str,db):
     user = db.query(Users).filter(Users.username == username).first()
-    if not user:
+    if user is None:
         return False
     if not bcrypt_context.verify(password, user.hashed_password):
         return False
-    return True
+    return user
 
 
 @router.post("/token")
 def login_for_access_token(form_data:Annotated[OAuth2PasswordRequestForm,Depends()],db:db_dependency):
-    if authenticate_user(form_data.username,form_data.password,db):
-        return "Login Successful"
+    user = authenticate_user(form_data.username,form_data.password,db)
+    token = ""
+    if not isinstance(user,bool):
+        token = token_generator(user.username,user.id,timedelta(minutes=20))
+        return {"access_token":token,"token_type":'Bearer'}
+
     else:
-        return "Login Failed"
+        return "Authentication Failed"
 
 
 @router.post("/auth/",status_code=HTTP_201_CREATED)
