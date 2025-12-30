@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from models import Todos
 import models
 from database import engine
 from routers import auth,todos
