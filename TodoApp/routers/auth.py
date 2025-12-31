@@ -1,8 +1,10 @@
 from datetime import timedelta, datetime, UTC
 from time import timezone
 from typing import Annotated
+
+from fastapi.openapi.utils import status_code_ranges
 #>pip install "python-jose[cryptography]"
-from jose import jwt
+from jose import jwt, JWTError, ExpiredSignatureError
 from fastapi import APIRouter, Depends,HTTPException
 from pydantic import BaseModel
 from models import Users
@@ -10,17 +12,22 @@ from database import engine, SessionLocal
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from sqlalchemy.util import deprecated
+from starlette import status
 from starlette.status import HTTP_201_CREATED
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 
 #openssl rand -hex 32
 SECRET_KEY = "dummykeyfornowwearegonnauseit"
 Algorithm="HS256"
 
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/auth",
+    tags=["auth"]
+)
 # for using bcrypt password we need to install passlib and bcrypt=4.0.1
 bcrypt_context = CryptContext(schemes=['bcrypt'],deprecated='auto')
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl='auth/token')
 
 class CreateUserRequest(BaseModel):
     username:str
@@ -49,9 +56,23 @@ def token_generator(username:str,user_id:int,expires_delta:timedelta):
         "sub":username,
         "id":user_id
     }
-    expires = str(datetime.now(UTC) + expires_delta)
-    encode.update({"exp":expires})
+    expires = datetime.now(UTC) + expires_delta
+    encode.update({"exp":int(expires.timestamp())})
     return jwt.encode(encode,SECRET_KEY,algorithm=Algorithm)
+
+async def get_current_user(token:Annotated[str,Depends(oauth2_bearer)]):
+    try:
+        payload = jwt.decode(token,SECRET_KEY,algorithms=Algorithm)
+        username:str = payload.get('sub')
+        user_id:int = payload.get('id')
+        if username is None or user_id is None:
+            raise HTTPException(status_code=401,detail="Could not validate user.")
+        return {"username":username,"id":user_id}
+
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 def authenticate_user(username:str,password:str,db):
     user = db.query(Users).filter(Users.username == username).first()
@@ -71,10 +92,10 @@ def login_for_access_token(form_data:Annotated[OAuth2PasswordRequestForm,Depends
         return {"access_token":token,"token_type":'Bearer'}
 
     else:
-        return "Authentication Failed"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user.")
 
 
-@router.post("/auth/",status_code=HTTP_201_CREATED)
+@router.post("/",status_code=HTTP_201_CREATED)
 def create_user(db:db_dependency,create_user_request:CreateUserRequest):
 
     create_user_model = Users(
