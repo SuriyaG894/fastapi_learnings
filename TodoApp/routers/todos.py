@@ -1,7 +1,7 @@
 from http.client import HTTPException
 from typing import Annotated
 
-from fastapi import APIRouter,Path,HTTPException
+from fastapi import APIRouter,Path,HTTPException,UploadFile,File,Form
 from fastapi.params import Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -87,3 +87,16 @@ def delete_todo(db:db_dependency,todo_id:int = Path(gt=0)):
     else:
         raise HTTPException(status_code=404,detail="todo not found")
 
+@router.post("/file",status_code=status.HTTP_201_CREATED)
+def receive_file(file:UploadFile = File(...)):
+    return {
+        "filename":file.filename,
+        "filetype":file.content_type
+    }
+
+@router.post("/form",status_code=status.HTTP_201_CREATED)
+def receive_form_data(username:str=Form(...),password:str=Form(...)):
+    return {
+        "username":username,
+        "password":password
+    }
